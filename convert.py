@@ -2,7 +2,6 @@ import os
 import argparse
 from moviepy.editor import VideoFileClip
 
-
 def convert_to_mp3():
     parser = argparse.ArgumentParser(description="Converte um arquivo de vídeo para MP3.")
     parser.add_argument("video_path", help="Caminho completo para o arquivo de vídeo a ser convertido.")
