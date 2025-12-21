@@ -1,9 +1,13 @@
 import customtkinter as ctk
-from pytubefix import YouTube
+from pytubefix import YouTube, request
 from moviepy.video.io.VideoFileClip import VideoFileClip
 from tkinter import filedialog
 import os
 import threading
+import ssl
+
+# Reduz o tamanho dos chunks de download para evitar erros SSL em algumas redes
+request.default_range_size = 2 * 1024 * 1024  # 2 MB
 
 class YouTubeDownloaderApp:
     def __init__(self):
@@ -55,6 +59,26 @@ class YouTubeDownloaderApp:
             height=40
         )
         self.url_entry.pack(pady=(0, 10), padx=10)
+
+        # Seleção de resolução
+        res_frame = ctk.CTkFrame(self.tab_download)
+        res_frame.pack(pady=(0, 10), padx=20, fill="x")
+
+        res_label = ctk.CTkLabel(
+            res_frame,
+            text="Escolha a resolução (progressive):",
+            font=ctk.CTkFont(size=13)
+        )
+        res_label.pack(pady=(10, 5))
+
+        self.resolution_option = ctk.CTkComboBox(
+            res_frame,
+            values=["Auto (melhor disponível)", "1080p", "720p", "480p", "360p"],
+            state="readonly",
+            width=220
+        )
+        self.resolution_option.set("Auto (melhor disponível)")
+        self.resolution_option.pack(pady=(0, 10))
         
         # Botão de download
         self.download_btn = ctk.CTkButton(
@@ -168,20 +192,47 @@ class YouTubeDownloaderApp:
         try:
             self.log_download_status("🔍 Buscando informações do vídeo...")
             
-            yt = YouTube(url)
+            yt = YouTube(url, use_oauth=False, allow_oauth_cache=False)
             
             self.log_download_status(f"📹 Título: {yt.title}")
             self.log_download_status(f"👁️ Visualizações: {yt.views:,}")
             
             self.log_download_status("⏳ Iniciando download...")
-            
-            yd = yt.streams.get_highest_resolution()
+            desired_res = self.resolution_option.get()
+
+            progressive_streams = yt.streams.filter(progressive=True, file_extension="mp4").order_by("resolution").desc()
+
+            selected_stream = None
+            if desired_res != "Auto (melhor disponível)":
+                selected_stream = progressive_streams.filter(res=desired_res).first()
+                if selected_stream is None:
+                    self.log_download_status("ℹ️ Resolução desejada não disponível. Usando a melhor disponível.")
+
+            if selected_stream is None:
+                selected_stream = progressive_streams.first()
+
+            if selected_stream is None:
+                raise Exception("Nenhum stream progressivo com áudio foi encontrado.")
             
             download_folder = 'videos'
             if not os.path.exists(download_folder):
                 os.makedirs(download_folder)
             
-            yd.download(output_path=download_folder)
+            # Tenta baixar com algumas tentativas em caso de erro SSL intermitente
+            attempts = 0
+            last_error = None
+            while attempts < 3:
+                try:
+                    selected_stream.download(output_path=download_folder)
+                    break
+                except ssl.SSLError as e:
+                    last_error = e
+                    attempts += 1
+                    self.log_download_status(f"⚠️ Erro SSL, tentando novamente ({attempts}/3)...")
+                    if attempts == 3:
+                        raise
+                except Exception as e:
+                    raise e
             
             self.log_download_status(f"✅ Download concluído em '{download_folder}/'!")
             self.log_download_status("─" * 50)
@@ -271,6 +322,4 @@ class YouTubeDownloaderApp:
 
 if __name__ == "__main__":
     app = YouTubeDownloaderApp()
-    app.run()
-
     app.run()
